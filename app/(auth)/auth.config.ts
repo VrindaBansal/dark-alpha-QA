@@ -103,9 +103,18 @@ export const authConfig = {
       return true;
     },
     jwt({ token, user, account }) {
-      // Capture OAuth provider access token
-      if (account?.access_token) {
-        token.accessToken = account.access_token as string;
+      // For OAuth, issue our own app JWT (provider access_token is opaque and not verifiable by our server)
+      if (account && account.provider !== "credentials" && user?.id) {
+        try {
+          const appToken = sign(
+            { id: user.id as string, type: "regular" },
+            process.env.AUTH_SECRET as string
+          );
+          token.accessToken = appToken;
+          token.type = "regular";
+        } catch (e) {
+          // Fallback to leaving token as-is if signing fails
+        }
       }
 
       if (user) {
