@@ -21,6 +21,8 @@ export default async function NewResource({
     redirect("/login");
   }
 
+  console.log("userSession inside resource", userSession);
+
   const { uid } = await params;
   const company = await getCompanyNameById(uid);
   const resourceCategories = await getAllResourceCategories();

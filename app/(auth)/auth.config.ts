@@ -1,6 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";
 import { db, getUser, getUserById } from "@/lib/db/queries";
 import bcrypt from "bcryptjs";
@@ -15,6 +14,7 @@ export const authConfig = {
     error: "/error",
     newUser: "/",
   },
+
   providers: [
     Google,
     Credentials({
@@ -102,11 +102,23 @@ export const authConfig = {
       }
       return true;
     },
-    jwt({ token, user }) {
+    jwt({ token, user, account }) {
+      // Capture OAuth provider access token
+      if (account?.access_token) {
+        token.accessToken = account.access_token as string;
+      }
+
       if (user) {
         token.id = user.id as string;
-        token.type = user.type;
-        token.accessToken = user.accessToken as string;
+        if ((user as any).type) {
+          const newType = (user as any).type as "guest" | "regular";
+          token.type = newType;
+        } else if (account && account.provider) {
+          token.type = "regular";
+        }
+        if ((user as any).accessToken) {
+          token.accessToken = (user as any).accessToken as string;
+        }
       }
 
       return token;
