@@ -89,7 +89,7 @@ CREATE TABLE "embeddings" (
 	"id" uuid DEFAULT gen_random_uuid() NOT NULL,
 	"resource_id" uuid NOT NULL,
 	"content" text NOT NULL,
-	"embedding" text NOT NULL,
+	"embedding" vector(1536) NOT NULL,
 	CONSTRAINT "embeddings_id_pk" PRIMARY KEY("id")
 );
 --> statement-breakpoint
@@ -281,6 +281,7 @@ ALTER TABLE "Vote_v2" ADD CONSTRAINT "Vote_v2_chatId_Chat_id_fk" FOREIGN KEY ("c
 ALTER TABLE "Vote_v2" ADD CONSTRAINT "Vote_v2_messageId_Message_v2_id_fk" FOREIGN KEY ("messageId") REFERENCES "public"."Message_v2"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "Vote" ADD CONSTRAINT "Vote_chatId_Chat_id_fk" FOREIGN KEY ("chatId") REFERENCES "public"."Chat"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "Vote" ADD CONSTRAINT "Vote_messageId_Message_id_fk" FOREIGN KEY ("messageId") REFERENCES "public"."Message"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "embeddingIndex" ON "embeddings" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "password_reset_token_email_token_unique" ON "password_reset_token" USING btree ("email","token");--> statement-breakpoint
 CREATE UNIQUE INDEX "two_factor_token_email_token_unique" ON "two_factor_token" USING btree ("email","token");--> statement-breakpoint
 CREATE UNIQUE INDEX "verification_token_email_token_unique" ON "verification_token" USING btree ("email","token");
