@@ -10,7 +10,7 @@ import {
   foreignKey,
   boolean,
   index,
-  vector,
+  // vector, // Temporarily disabled until pgvector is properly installed
   pgEnum,
   integer,
   uniqueIndex,
@@ -490,7 +490,8 @@ export const embeddings = pgTable(
       .references(() => resources.id, { onDelete: "cascade" }),
 
     content: text("content").notNull(),
-    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    // embedding: vector("embedding", { dimensions: 1536 }).notNull(), // Temporarily disabled
+    embedding: text("embedding").notNull(), // Temporary text field until pgvector is available
   },
   (table) => ({
     pk: primaryKey({ columns: [table.id] }),
@@ -499,10 +500,10 @@ export const embeddings = pgTable(
       foreignColumns: [resources.id],
     }),
 
-    embeddingIndex: index("embeddingIndex").using(
-      "hnsw",
-      table.embedding.op("vector_cosine_ops")
-    ),
+    // embeddingIndex: index("embeddingIndex").using(
+    //   "hnsw",
+    //   table.embedding.op("vector_cosine_ops")
+    // ), // Temporarily disabled until pgvector is available
   })
 );
 
