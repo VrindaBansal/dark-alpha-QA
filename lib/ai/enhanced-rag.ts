@@ -3,8 +3,8 @@ import { db } from "../db/queries";
 import {
   embeddings as embeddingsTable,
   resources as resourcesTable,
-  companies as companiesTable,
-  tickets as ticketsTable,
+  company as companiesTable,
+  ticket as ticketsTable,
   companyQuestions,
   answers,
   comparisonQuestions,
