@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Building2,
   MessageCircle,
+  Upload,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -44,6 +45,7 @@ import ResourcePagination from "./resource-pagination";
 import { ResourceSelectionProvider } from "./resource-selection-context";
 import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 import { SelectAllCheckbox } from "./select-all-checkbox";
+import { BulkUploadDialog } from "./bulk-upload-dialog";
 
 export const generateMetadata = async ({
   params,
@@ -233,6 +235,18 @@ export default async function CompanyDetail({
                     <FilterResourceCategory
                       resourceCategories={resourceCategories}
                     />
+
+                    <BulkUploadDialog
+                      companyId={company.id}
+                      categoryId={resourceCategories[0]?.id || ""}
+                      trigger={
+                        <Button variant="outline" className="w-full sm:w-auto">
+                          <Upload className="size-4 mr-2" />
+                          Bulk Upload
+                        </Button>
+                      }
+                    />
+
                     <Link
                       href={`/admin/companies/${company.id}/resources/new-audio`}
                       className="w-full sm:w-auto"
