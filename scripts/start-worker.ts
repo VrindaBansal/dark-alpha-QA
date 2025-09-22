@@ -1,6 +1,10 @@
 #!/usr/bin/env tsx
 
-import { bulkUploadWorker } from '../lib/queue/worker';
+import { config } from 'dotenv';
+import { simpleBulkUploadWorker as bulkUploadWorker } from '../lib/queue/simple-worker';
+
+// Load environment variables
+config({ path: '.env.local' });
 
 console.log('🚀 Starting bulk upload worker...');
 

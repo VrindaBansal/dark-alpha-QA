@@ -6,11 +6,17 @@ import {
   rowsToTextChunks,
   generateChunksFromText,
   generateEmbeddingsFromChunks,
-} from "@/lib/ai/embedding";
-import { db } from "@/lib/db/queries";
+} from "./worker-embedding";
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { embeddings as embeddingsTable, resources } from "@/lib/db/schema";
 import { openaiProvider, openaiClient } from "@/lib/ai/providers";
 import { generateText } from "ai";
+
+// Initialize database connection for worker
+const connectionString = process.env.POSTGRES_URL!;
+const client = postgres(connectionString);
+const db = drizzle(client);
 
 class BulkUploadWorker {
   private isRunning = false;
