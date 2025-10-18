@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { openaiProvider, openaiClient } from "@/lib/ai/providers";
 import { generateObject } from "ai";
 import { z } from "zod";
+import { publishUploadProgress } from "@/lib/redis-publisher";
+import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
   console.log("inside api extract questions");
@@ -33,11 +35,39 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Generate jobId for progress tracking
+  const jobId = uuidv4();
   const fileType = file.type;
   const buffer = await file.arrayBuffer();
 
+  // Publish initial progress
+  await publishUploadProgress({
+    jobId,
+    currentFile: 1,
+    totalFiles: 1,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type,
+    status: "processing",
+    progress: 10,
+    timestamp: Date.now(),
+  });
+
   console.log("analysing pdf using AI");
   try {
+    // Update progress: AI analysis started
+    await publishUploadProgress({
+      jobId,
+      currentFile: 1,
+      totalFiles: 1,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      status: "processing",
+      progress: 30,
+      timestamp: Date.now(),
+    });
+
     const result = await generateObject({
       model: openaiProvider.responses("gpt-4o"),
       schema: z.object({
@@ -81,12 +111,39 @@ The document is a PDF file.`,
 
     console.log("Result from analysing pdf using AI", result.object);
 
+    // Publish completion progress
+    await publishUploadProgress({
+      jobId,
+      currentFile: 1,
+      totalFiles: 1,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      status: "completed",
+      progress: 100,
+      timestamp: Date.now(),
+    });
+
     return NextResponse.json(
-      { message: "Questions extracted", questions: result.object.questions },
+      { message: "Questions extracted", questions: result.object.questions, jobId },
       { status: 200 }
     );
   } catch (error) {
     console.error("Error extracting questions", error);
+
+    // Publish failure progress
+    await publishUploadProgress({
+      jobId,
+      currentFile: 1,
+      totalFiles: 1,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      status: "failed",
+      progress: 0,
+      timestamp: Date.now(),
+    });
+
     return NextResponse.json(
       { error: "Error extracting questions" },
       { status: 500 }

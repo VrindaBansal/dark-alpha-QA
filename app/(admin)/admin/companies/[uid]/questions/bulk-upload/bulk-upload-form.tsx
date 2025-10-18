@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, Upload, FileText, X, CheckCircle } from "lucide-react";
 import { z } from "zod";
@@ -21,12 +21,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 
 import axios from "axios";
 import { extractQuestionsSchema } from "@/lib/schemas/extract-questions-schema";
 import { bulkAddQuestions } from "@/lib/actions/bulk-add-questions";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { io, Socket } from "socket.io-client";
+
+interface JobProgress {
+  currentFile: number;
+  totalFiles: number;
+  status: string;
+  fileName: string;
+  fileSize?: number;
+  fileType?: string;
+  progress?: number;
+}
 
 export default function BulkUploadForm({ companyId }: { companyId: string }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -34,6 +46,50 @@ export default function BulkUploadForm({ companyId }: { companyId: string }) {
   const [isUploading, setIsUploading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [questions, setQuestions] = useState<{ title: string }[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<JobProgress | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+
+  // Cleanup socket on unmount
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  const connectWebSocket = (id: string) => {
+    const socket = io({
+      path: '/api/socket',
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('🔌 WebSocket connected');
+      socket.emit('subscribe', id);
+    });
+
+    socket.on('progress', (data: JobProgress) => {
+      console.log('📡 Progress update:', data);
+      setProgress(data);
+
+      if (data.status === 'completed' || data.status === 'failed') {
+        setIsUploading(false);
+        socket.emit('unsubscribe', id);
+        setTimeout(() => socket.disconnect(), 1000);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('🔌 WebSocket disconnected');
+    });
+
+    socket.on('error', (error) => {
+      console.error('❌ WebSocket error:', error);
+    });
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -64,10 +120,15 @@ export default function BulkUploadForm({ companyId }: { companyId: string }) {
       const response = await axios.post("/api/extract-questions", formData);
 
       setQuestions(response.data.questions);
+      setJobId(response.data.jobId);
       setIsComplete(true);
+
+      // Connect to WebSocket for progress tracking
+      if (response.data.jobId) {
+        connectWebSocket(response.data.jobId);
+      }
     } catch (err) {
       setError("Upload failed. Please try again.");
-    } finally {
       setIsUploading(false);
     }
   };
@@ -170,10 +231,15 @@ export default function BulkUploadForm({ companyId }: { companyId: string }) {
                       )}
                     </div>
 
-                    {isUploading && (
+                    {isUploading && progress && (
                       <div className="mt-4 space-y-2">
                         <div className="flex justify-between text-sm">
                           <span>Processing...</span>
+                          <span>{progress.progress}%</span>
+                        </div>
+                        <Progress value={progress.progress || 0} className="h-2" />
+                        <div className="text-xs text-muted-foreground">
+                          Status: {progress.status}
                         </div>
                       </div>
                     )}
