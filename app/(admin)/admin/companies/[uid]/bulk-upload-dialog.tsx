@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -25,9 +25,14 @@ import {
 import { BsFiletypePdf, BsFileImage, BsFiletypeExe } from "react-icons/bs";
 import { PiFileAudioBold } from "react-icons/pi";
 import { toast } from "sonner";
+import { io, Socket } from "socket.io-client";
 
-interface FileWithPreview extends File {
+interface FileWithPreview {
   id: string;
+  file: File;
+  name: string;
+  size: number;
+  type: string;
   preview?: string;
 }
 
@@ -53,7 +58,8 @@ interface BulkUploadDialogProps {
   trigger: React.ReactNode;
 }
 
-const getFileIcon = (type: string) => {
+const getFileIcon = (type?: string) => {
+  if (!type) return <FileText className="h-6 w-6" />;
   if (type.includes('pdf')) return <BsFiletypePdf className="h-6 w-6" />;
   if (type.includes('word') || type.includes('document')) return <FileText className="h-6 w-6" />;
   if (type.includes('excel') || type.includes('spreadsheet')) return <BsFiletypeExe className="h-6 w-6" />;
@@ -78,6 +84,10 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout>();
+  const socketRef = useRef<Socket | null>(null);
+  const [currentFile, setCurrentFile] = useState<number>(0);
+  const [totalFiles, setTotalFiles] = useState<number>(0);
+  const [currentFileName, setCurrentFileName] = useState<string>('');
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
     // Handle rejected files
@@ -89,8 +99,11 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
 
     // Process accepted files
     const newFiles: FileWithPreview[] = acceptedFiles.map(file => ({
-      ...file,
       id: Math.random().toString(36).substr(2, 9),
+      file: file,
+      name: file.name,
+      size: file.size,
+      type: file.type,
     }));
 
     setFiles(prev => [...prev, ...newFiles]);
@@ -130,11 +143,11 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
       formData.append('companyId', companyId);
       formData.append('categoryId', categoryId);
 
-      files.forEach((file, index) => {
-        formData.append(`files[${index}]`, file);
+      files.forEach((fileWrapper, index) => {
+        formData.append(`files[${index}]`, fileWrapper.file);
       });
 
-      const response = await fetch('/admin/api/bulk-upload', {
+      const response = await fetch('/api/bulk-upload', {
         method: 'POST',
         body: formData,
       });
@@ -147,8 +160,8 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
       const result = await response.json();
       toast.success(`Started processing ${result.filesCount} files`);
 
-      // Start polling for job status
-      pollJobStatus(result.jobId);
+      // Connect to WebSocket for real-time progress
+      connectWebSocket(result.jobId);
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -157,58 +170,102 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
     }
   };
 
-  const pollJobStatus = async (jobId: string) => {
-    const checkStatus = async () => {
-      try {
-        const response = await fetch(`/admin/api/bulk-upload/${jobId}`);
-        if (response.ok) {
-          const status: JobStatus = await response.json();
-          setJobStatus(status);
+  const connectWebSocket = (jobId: string) => {
+    // Initialize WebSocket connection
+    const socket = io({
+      path: '/api/socket',
+    });
 
-          if (status.status === 'completed' || status.status === 'failed') {
-            setIsUploading(false);
-            if (intervalRef.current) {
-              clearInterval(intervalRef.current);
-            }
+    socketRef.current = socket;
 
-            if (status.status === 'completed') {
-              const successCount = status.results?.filter(r => r.status === 'success').length || 0;
-              const errorCount = status.results?.filter(r => r.status === 'error').length || 0;
+    socket.on('connect', () => {
+      console.log('🔌 WebSocket connected');
+      socket.emit('subscribe', jobId);
+    });
 
-              if (successCount > 0) {
-                toast.success(`Successfully processed ${successCount} files`);
-              }
-              if (errorCount > 0) {
-                toast.error(`Failed to process ${errorCount} files`);
-              }
+    socket.on('progress', (data: {
+      status: 'pending' | 'processing' | 'completed' | 'failed';
+      progress: number;
+      currentFile?: number;
+      totalFiles?: number;
+      fileName?: string;
+      results?: any[];
+    }) => {
+      console.log('📡 Progress update:', data);
 
-              // Refresh the page to show new resources
-              window.location.reload();
-            } else {
-              toast.error('Bulk upload failed');
-            }
+      // Update progress display
+      if (data.currentFile !== undefined) setCurrentFile(data.currentFile);
+      if (data.totalFiles !== undefined) setTotalFiles(data.totalFiles);
+      if (data.fileName) setCurrentFileName(data.fileName);
+
+      // Update job status
+      setJobStatus({
+        id: jobId,
+        status: data.status,
+        progress: data.progress,
+        results: data.results,
+        filesCount: data.totalFiles || 0,
+        fileNames: [],
+      });
+
+      // Handle completion
+      if (data.status === 'completed' || data.status === 'failed') {
+        setIsUploading(false);
+        socket.emit('unsubscribe', jobId);
+        socket.disconnect();
+
+        if (data.status === 'completed') {
+          const successCount = data.results?.filter(r => r.status === 'success').length || 0;
+          const errorCount = data.results?.filter(r => r.status === 'error').length || 0;
+
+          if (successCount > 0) {
+            toast.success(`Successfully processed ${successCount} files`);
           }
+          if (errorCount > 0) {
+            toast.error(`Failed to process ${errorCount} files`);
+          }
+
+          // Refresh the page to show new resources
+          setTimeout(() => window.location.reload(), 2000);
+        } else {
+          toast.error('Bulk upload failed');
         }
-      } catch (error) {
-        console.error('Status check error:', error);
       }
-    };
+    });
 
-    // Initial check
-    await checkStatus();
+    socket.on('disconnect', () => {
+      console.log('🔌 WebSocket disconnected');
+    });
 
-    // Poll every 2 seconds
-    intervalRef.current = setInterval(checkStatus, 2000);
+    socket.on('error', (error) => {
+      console.error('❌ WebSocket error:', error);
+    });
   };
 
   const resetDialog = () => {
     setFiles([]);
     setIsUploading(false);
     setJobStatus(null);
+    setCurrentFile(0);
+    setTotalFiles(0);
+    setCurrentFileName('');
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
@@ -347,6 +404,21 @@ export function BulkUploadDialog({ companyId, categoryId, trigger }: BulkUploadD
 
               {jobStatus && (
                 <div className="space-y-3">
+                  {/* File Counter Display */}
+                  {totalFiles > 0 && (
+                    <div className="flex items-center justify-between text-lg font-semibold">
+                      <span>Processing Files</span>
+                      <span className="text-primary">{currentFile} / {totalFiles}</span>
+                    </div>
+                  )}
+
+                  {/* Current File Name */}
+                  {currentFileName && (
+                    <div className="text-sm text-muted-foreground truncate">
+                      Current: {currentFileName}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-sm">
                     <span>Progress</span>
                     <span>{jobStatus.progress}%</span>
